@@ -1,5 +1,9 @@
 # ML Engineering · Machine Learning Engineer — Solutions Repository
 
+<!-- aicg:site-banner -->
+> 🎓 Part of the free, open-source **AI Career Curriculum** ecosystem — [Infrastructure](https://github.com/ai-infra-curriculum) · [ML Engineering](https://github.com/ml-engineering-curriculum) · [AI Engineering](https://github.com/ai-engineering-curriculum) · [Governance](https://github.com/ai-governance-curriculum). Live cohorts &amp; team programs: **[ai-infra-curriculum.github.io](https://ai-infra-curriculum.github.io/)**.
+<!-- /aicg:site-banner -->
+
 Reference implementations for the paired [`ml-engineer-learning`](https://github.com/ml-engineering-curriculum/ml-engineer-learning) track.
 
 > **Status**: scaffolded by `aicg org bootstrap-role`. Module and project solutions arrive over subsequent autonomous cycles.
