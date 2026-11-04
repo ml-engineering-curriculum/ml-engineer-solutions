@@ -485,10 +485,16 @@ def test_build_user_features_contract(tables):
     }
     assert required.issubset(feats.columns)
     assert (feats["tenure_days"].dropna() >= 0).all()
-    zero_txn = feats["n_transactions"] == 0
-    assert feats.loc[zero_txn, "mean_basket_90d"].isna().all()
-    # Users with zero transactions survive (generator plants two of them).
+    # Full-table coverage: every users-row survives into feats, including
+    # users with zero transactions and users whose only transactions were
+    # dropped as future-dated upstream.
     assert len(feats) == len(tables["users"])
+    # Inactive users keep zero counts and undefined means/recency — the
+    # generator plants two, so at least two rows must look like this.
+    zero_txn = feats["n_transactions"] == 0
+    assert zero_txn.sum() >= 2
+    assert feats.loc[zero_txn, "mean_basket_90d"].isna().all()
+    assert feats.loc[zero_txn, "days_since_last_txn"].isna().all()
 
 
 def test_final_matrix_is_floatlike(tables):
