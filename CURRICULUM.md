@@ -24,3 +24,11 @@ Navigation for the reference solutions in this repo. Paired with the [`ml-engine
 | [project-101-tabular-ml-end-to-end](projects/project-101-tabular-ml-end-to-end/) | End-to-End Tabular ML Project |
 | [project-102-deep-learning-vision-project](projects/project-102-deep-learning-vision-project/) | Deep Learning Vision Project |
 | [project-103-ml-system-capstone](projects/project-103-ml-system-capstone/) | ML System Capstone |
+
+## Shipped (autonomous)
+
+Auto-appended by the AICG runner. One row per verified work item. Edit the rest of the document by hand; this section is additive only.
+
+| Date | Work ID | Scope | Title |
+|---|---|---|---|
+| 2026-11-03 | `fill-mod-102-python-ml-toolchain-solutions` | `mod-102-python-ml-toolchain` | Fill mod-102-python-ml-toolchain module exercise solutions |
