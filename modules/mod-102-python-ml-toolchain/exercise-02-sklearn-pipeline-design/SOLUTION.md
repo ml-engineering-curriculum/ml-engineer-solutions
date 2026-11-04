@@ -381,12 +381,22 @@ def test_pipeline_fits_and_scores():
     assert 0.7 < pipe.score(X_test, y_test) < 0.95
 
 
-def test_no_fit_transform_touches_X_test(tmp_path):
-    src = (tmp_path / ".." / "..").resolve()
-    text = "".join(p.read_text() for p in src.rglob("*.py"))
+def test_no_fit_transform_touches_X_test():
+    # Scan the real project checkout, not pytest's tmp dir. This file
+    # lives at <project>/tests/test_pipeline.py, so parent.parent is
+    # the project root; `tmp_path / ".." / ".."` would land in pytest's
+    # basetemp and read zero project files.
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parent.parent
+    files = [p for p in project_root.rglob("*.py") if ".venv" not in p.parts]
+    assert files, f"no project .py files found under {project_root}"
     # Narrow heuristic: no co-mention of fit_transform and X_test.
-    for line in text.splitlines():
-        assert not ("fit_transform" in line and "X_test" in line)
+    for path in files:
+        for line in path.read_text().splitlines():
+            assert not (
+                "fit_transform" in line and "X_test" in line
+            ), f"leaky call in {path}: {line.strip()}"
 ```
 
 ### `REPORT.md` — reference answers

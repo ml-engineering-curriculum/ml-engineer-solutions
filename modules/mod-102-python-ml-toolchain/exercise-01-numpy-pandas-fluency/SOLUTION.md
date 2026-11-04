@@ -303,17 +303,22 @@ def enrich(
 
 
 def build_user_features(
-    enriched: pd.DataFrame, *, as_of: pd.Timestamp
+    enriched: pd.DataFrame, users: pd.DataFrame, *, as_of: pd.Timestamp
 ) -> pd.DataFrame:
     """Per-user features over the trailing 90-day window.
 
-    Returns one row per *known* user with at least the seven features
-    required by the exercise.
+    Returns one row per user in ``users``, including users with zero
+    transactions in the window (or no transactions at all, or whose
+    only transactions were dropped as future-dated upstream). Those
+    users keep ``n_transactions = 0`` and leave the basket / recency
+    columns as NaN rather than disappearing from the output.
     """
     assert enriched["timestamp"].dtype.kind == "M"
 
-    # Drop ghost users (unknown user_id in transactions) — their joined
-    # signup_date is NaT, which also tells us they are ghosts.
+    # Drop ghost transactions (user_id not in the users table) before we
+    # aggregate — their joined signup_date is NaT. Real users with zero
+    # transactions never reach `known` and are recovered by the left-join
+    # against `users_slim` below.
     known = enriched.dropna(subset=["signup_date"]).copy()
     known["line_value"] = known["quantity"].astype("float64") * known["unit_price"]
 
@@ -331,9 +336,10 @@ def build_user_features(
     # days-since-last-txn and last-txn use the full history, not just the window.
     last_txn = known.groupby("user_id", observed=True)["timestamp"].max().rename("last_ts")
 
-    # One row per known user (including users with zero transactions in the window).
+    # One row per user in the full users table. Building this from `known`
+    # would silently drop users with zero transactions.
     users_slim = (
-        known[["user_id", "signup_date", "country", "age"]]
+        users[["user_id", "signup_date", "country", "age"]]
         .drop_duplicates(subset=["user_id"])
         .set_index("user_id")
     )
@@ -466,7 +472,7 @@ def test_enrich_validate_catches_duplicate_user(tables):
 def test_build_user_features_contract(tables):
     cleaned, _ = clean_transactions(tables["transactions"], as_of=AS_OF)
     enriched = enrich(cleaned, tables["users"], tables["products"])
-    feats = build_user_features(enriched, as_of=AS_OF)
+    feats = build_user_features(enriched, tables["users"], as_of=AS_OF)
     required = {
         "tenure_days",
         "n_transactions",
@@ -481,12 +487,14 @@ def test_build_user_features_contract(tables):
     assert (feats["tenure_days"].dropna() >= 0).all()
     zero_txn = feats["n_transactions"] == 0
     assert feats.loc[zero_txn, "mean_basket_90d"].isna().all()
+    # Users with zero transactions survive (generator plants two of them).
+    assert len(feats) == len(tables["users"])
 
 
 def test_final_matrix_is_floatlike(tables):
     cleaned, _ = clean_transactions(tables["transactions"], as_of=AS_OF)
     enriched = enrich(cleaned, tables["users"], tables["products"])
-    feats = build_user_features(enriched, as_of=AS_OF)
+    feats = build_user_features(enriched, tables["users"], as_of=AS_OF)
     X, _ = final_feature_matrix(feats)
     assert X.dtype == np.float64
     assert X.ndim == 2

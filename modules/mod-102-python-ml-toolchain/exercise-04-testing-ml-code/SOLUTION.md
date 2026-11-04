@@ -209,8 +209,15 @@ def test_pipeline_predictions_match_golden():
         np.save(GOLDEN, probs)
         pytest.skip("golden regenerated")
     if not GOLDEN.exists():
-        pytest.skip(
-            "golden file missing; run `REGENERATE_GOLDENS=1 pytest` to create it"
+        # A missing baseline is a failure, not a skip: if we skipped
+        # here, the break-and-restore demo (and any accidental deletion
+        # or omitted commit) would silently turn green without ever
+        # checking a prediction. Regeneration is an explicit, auditable
+        # action — gated by REGENERATE_GOLDENS=1 above.
+        pytest.fail(
+            f"golden file missing at {GOLDEN}; regenerate deliberately via "
+            "`REGENERATE_GOLDENS=1 pytest tests/test_golden.py` and commit "
+            "the file as part of a PR that explains why the baseline moved."
         )
     golden = np.load(GOLDEN)
     np.testing.assert_allclose(probs, golden, rtol=1e-6, atol=1e-8)

@@ -35,10 +35,13 @@ ml_toolkit/
 
 Three non-obvious decisions:
 
-- **`--frozen` is the CI contract.** `uv sync` without a flag will
-  *silently update* the lockfile; `uv sync --frozen` refuses to, so
-  CI fails fast when `pyproject.toml` drifts from `uv.lock`.
-  See the
+- **`--locked` is the CI contract.** `uv sync` without a flag will
+  *silently update* the lockfile; `uv sync --frozen` goes the other
+  way and installs from whatever `uv.lock` happens to say even when
+  `pyproject.toml` has drifted away from it. `uv sync --locked`
+  refuses to proceed when the lock is stale, which is the behaviour
+  CI needs. `uv run` is passed `--locked` too, so a later step cannot
+  quietly re-resolve. See the
   [uv lockfile docs](https://docs.astral.sh/uv/concepts/projects/sync/#syncing-the-environment).
 - **Pin the interpreter minor version, not just major.** `.python-version`
   contains `3.11` (or `3.12`). Pinning to a range (e.g. `>=3.11`)
@@ -235,27 +238,27 @@ jobs:
       - name: Install Python pinned in .python-version
         run: uv python install
 
-      - name: Install dependencies (refuse to modify lockfile)
-        run: uv sync --frozen
+      - name: Install dependencies (fail if lockfile drifts)
+        run: uv sync --locked
 
       - name: Lint
-        run: uv run ruff check .
+        run: uv run --locked ruff check .
 
       - name: Type-check
-        run: uv run mypy src tests
+        run: uv run --locked mypy src tests
 
       - name: Tests
-        run: uv run pytest -q
+        run: uv run --locked pytest -q
 ```
 
 ### The deliberate-break demo
 
 Edit one line of `pyproject.toml` by hand — bump `numpy>=1.26` to
 `numpy>=2.0` without regenerating the lockfile — commit, push. CI
-fails at `uv sync --frozen` with a message of roughly:
+fails at `uv sync --locked` with a message of roughly:
 
 ```
-error: The lockfile at `uv.lock` needs to be updated, but `--frozen`
+error: The lockfile at `uv.lock` needs to be updated, but `--locked`
 was provided. To update the lockfile, run `uv lock`.
 ```
 
@@ -273,30 +276,30 @@ goes green again. Paste the failing-run URL into `REPORT.md`.
   freeze on macOS/Linux vs. a Linux container — that's expected and
   `uv.lock` records the per-platform resolution.)
 - **Lockfile drift CI run.** Link / screenshot of the failing run,
-  with the `--frozen` error message annotated.
+  with the `--locked` error message annotated.
 
 ## 3. Validation steps
 
 ```bash
 # Rebuild from scratch, no cache.
 rm -rf .venv
-uv sync --frozen
-uv run pytest -q
-uv run ruff check .
-uv run mypy src tests
+uv sync --locked
+uv run --locked pytest -q
+uv run --locked ruff check .
+uv run --locked mypy src tests
 
 # Container path.
 docker build -t ml_toolkit:test .
 docker run --rm ml_toolkit:test
 
-# Drift-detection sanity: temporary hand-edit must fail --frozen.
+# Drift-detection sanity: temporary hand-edit must fail --locked.
 sed -i.bak 's/numpy>=1.26/numpy>=2.0/' pyproject.toml
-uv sync --frozen && echo "LOCKFILE DRIFT NOT CAUGHT" || echo "ok: frozen refused"
+uv sync --locked && echo "LOCKFILE DRIFT NOT CAUGHT" || echo "ok: locked refused"
 mv pyproject.toml.bak pyproject.toml
 ```
 
 Expected: every command exits zero on the happy path; the drift
-block prints `ok: frozen refused`.
+block prints `ok: locked refused`.
 
 Additional spot checks:
 
@@ -320,13 +323,13 @@ Additional spot checks:
 | Dockerfile | Starts from slim image, installs uv, copies lockfile, `uv sync --frozen`, runs tests | 15 |
 | Reproducibility proof | `uv pip freeze` local == container (or justified diff) | 10 |
 | CI happy path | Workflow runs sync + lint + mypy + pytest; passes on main | 15 |
-| CI enforcement | Hand-bumped dep without lockfile regenerate fails `--frozen`; failing run documented | 10 |
+| CI enforcement | Hand-bumped dep without lockfile regenerate fails `uv sync --locked`; failing run documented | 10 |
 
 Binary review checklist:
 
 - [ ] `pyproject.toml`, lockfile, `.python-version`, `.gitignore` all committed.
 - [ ] `.venv/` is not committed.
-- [ ] `uv sync --frozen && uv run pytest -q` green on a fresh clone.
+- [ ] `uv sync --locked && uv run --locked pytest -q` green on a fresh clone.
 - [ ] Container build produces an installed-package list identical to the local one.
 - [ ] CI runs on push *and* PR.
 - [ ] CI fails on lockfile drift, with the error message captured in `REPORT.md`.
@@ -337,9 +340,12 @@ Binary review checklist:
 1. **Committing `.venv/`.** The `.gitignore` is present but the
    developer `git add .`'d before adding it. `git rm -r --cached
    .venv` and re-commit.
-2. **`uv sync` in CI instead of `uv sync --frozen`.** Means the
-   drift-detection test passes when it should fail — because CI
-   silently rewrites `uv.lock`. Always use `--frozen` in CI.
+2. **`uv sync` (or `uv sync --frozen`) in CI instead of `uv sync
+   --locked`.** Bare `uv sync` silently rewrites `uv.lock`;
+   `--frozen` goes the other way and installs from a stale lock
+   without complaining. Only `--locked` actually fails CI when
+   `pyproject.toml` has drifted from `uv.lock`. Pair it with
+   `uv run --locked` so downstream steps cannot re-resolve either.
 3. **Pinning Python as `>=3.11`.** A range, not a pin. CI will pick
    whichever is default; six months later your dev box and CI runner
    diverge. Use a single minor in `.python-version`.
@@ -377,7 +383,7 @@ Official project / standard documentation:
 - uv — <https://docs.astral.sh/uv/>
 - uv project workflow —
   <https://docs.astral.sh/uv/concepts/projects/>
-- uv lockfile / `uv sync --frozen` —
+- uv lockfile / `uv sync --locked` —
   <https://docs.astral.sh/uv/concepts/projects/sync/>
 - uv Python installer —
   <https://docs.astral.sh/uv/guides/install-python/>
