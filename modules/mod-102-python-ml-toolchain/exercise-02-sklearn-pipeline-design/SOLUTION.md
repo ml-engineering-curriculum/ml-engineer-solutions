@@ -7,10 +7,10 @@
 ## 1. Solution overview
 
 The exercise is an **implementation drill** on the single discipline
-that catches more ML production bugs than any other: build a `Pipeline`
-+ `ColumnTransformer` so that every preprocessing step is `fit` on the
-training fold only, then prove it by showing that the leaky
-alternative scores higher.
+that catches more ML production bugs than any other: build a
+`Pipeline` + `ColumnTransformer` so that every preprocessing step is
+`fit` on the training fold only, then prove it by showing that the
+leaky alternative scores higher.
 
 The reference solution picks the **Adult (OpenML) dataset** for the
 walkthrough — binary classification on a tabular, mixed-type dataset
