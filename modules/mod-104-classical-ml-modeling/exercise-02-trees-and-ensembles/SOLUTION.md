@@ -186,7 +186,9 @@ def main(data_path: str, target: str, out: str) -> None:
             for r in results
         ],
         "oob_score": getattr(winner.estimator, "oob_score_", None),
-        "importance_top10_mdi": importances["mdi"].head(10).to_dict(),
+        "importance_top10_mdi": (
+            importances["mdi"].head(10).to_dict() if importances["mdi"] is not None else None
+        ),
         "importance_top10_permutation": importances["permutation"].head(10).to_dict(),
     }
     (out_dir / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True, default=float))
@@ -210,9 +212,14 @@ import pandas as pd
 from sklearn.inspection import permutation_importance
 
 
-def both_importances(est, X_test, y_test) -> dict[str, pd.Series]:
-    mdi = pd.Series(getattr(est, "feature_importances_", []), index=X_test.columns)
-    mdi = mdi.sort_values(ascending=False)
+def both_importances(est, X_test, y_test) -> dict[str, pd.Series | None]:
+    # Not every estimator exposes MDI. `HistGradientBoostingClassifier`, in particular,
+    # has no `feature_importances_` attribute, so building a Series from a missing
+    # attribute would produce a length-mismatch error against `X_test.columns`.
+    if hasattr(est, "feature_importances_"):
+        mdi = pd.Series(est.feature_importances_, index=X_test.columns).sort_values(ascending=False)
+    else:
+        mdi = None
 
     perm = permutation_importance(
         est, X_test, y_test,

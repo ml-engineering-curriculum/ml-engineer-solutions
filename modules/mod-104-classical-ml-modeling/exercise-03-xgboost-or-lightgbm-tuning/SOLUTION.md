@@ -103,22 +103,24 @@ def make_objective(X, y, n_splits: int = 5):
             y_tr, y_va = y.iloc[tr], y.iloc[va]
             dtrain = lgb.Dataset(X_tr, y_tr)
             dvalid = lgb.Dataset(X_va, y_va, reference=dtrain)
-            pruning_callback = optuna.integration.LightGBMPruningCallback(
-                trial, metric="binary_logloss", valid_name="valid_0"
-            )
             booster = lgb.train(
                 params,
                 dtrain,
                 num_boost_round=5000,
                 valid_sets=[dvalid],
                 valid_names=["valid_0"],
-                callbacks=[
-                    lgb.early_stopping(stopping_rounds=50, verbose=False),
-                    pruning_callback,
-                ],
+                callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)],
             )
             y_pred = booster.predict(X_va, num_iteration=booster.best_iteration)
             fold_scores.append(log_loss(y_va, y_pred))
+            # Report the running mean across completed folds, with the fold index
+            # as the step. Reporting on `env.iteration` (boosting round) via
+            # LightGBMPruningCallback restarts step=0 every fold — Optuna keeps
+            # the first value reported for a step, so later folds get discarded
+            # and pruning operates on first-fold values only.
+            trial.report(float(np.mean(fold_scores)), step=fold_idx)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
         return float(np.mean(fold_scores))
 
     return objective
@@ -126,7 +128,8 @@ def make_objective(X, y, n_splits: int = 5):
 
 What each line is actually doing:
 
-- **`LightGBMPruningCallback`** reports the valid score back to Optuna every boosting round. The `MedianPruner` compares against previously-completed trials at the same round and kills the trial if it's below median. This is where the 5–10× speedup comes from.
+- **`trial.report(mean(fold_scores), step=fold_idx)`** feeds the pruner one aggregated score per fold. Optuna's `MedianPruner` compares a trial's reported value at step `k` against the median of completed trials at the same step. Because fold index is unique per trial, there are no step collisions and the median comparison stays honest.
+- **`trial.should_prune()` after each fold** lets the pruner kill a bad configuration after 1–2 folds instead of running all 5. This is where the wall-clock savings come from in the new wiring (the old per-boosting-round callback *looked* finer-grained but silently dropped all folds after the first).
 - **`early_stopping(50)`** stops the booster inside this trial once the valid score has not improved for 50 rounds. Without it, every trial runs for 5000 rounds and the slowest hyperparameter configurations dominate wall time.
 - **`num_iteration=booster.best_iteration`** uses the checkpoint from before overfit started. Prediction with the *final* iteration includes the overfit rounds.
 - **Return the mean** of the five fold log-losses. Returning a single fold's score makes the objective noisier than the signal in most hyperparameter changes.
@@ -146,7 +149,7 @@ def make_study(name: str, storage_url: str) -> optuna.Study:
         storage=storage_url,
         direction="minimize",
         sampler=TPESampler(seed=42, n_startup_trials=20, multivariate=True, group=True),
-        pruner=MedianPruner(n_startup_trials=20, n_warmup_steps=200, interval_steps=50),
+        pruner=MedianPruner(n_startup_trials=20, n_warmup_steps=2, interval_steps=1),
         load_if_exists=True,
     )
 ```
@@ -154,7 +157,7 @@ def make_study(name: str, storage_url: str) -> optuna.Study:
 Decisions baked into the study:
 
 - **`n_startup_trials=20` on the sampler**. The first 20 trials are random — TPE needs a prior before it can bias the search. Starting TPE from trial 1 is a common bug that produces biased, slow exploration.
-- **`n_warmup_steps=200` on the pruner**. Each trial must reach 200 boosting rounds before it is eligible for pruning. Pruning from round 1 kills slow-starting configurations that would eventually have been best.
+- **`n_warmup_steps=2` on the pruner**. The objective reports one value per CV fold, so steps count folds (0 … n_splits-1). A trial must complete two folds before it is eligible for pruning — enough signal to tell a genuinely bad configuration from a single unlucky split, without wasting all 5 folds on it.
 - **`multivariate=True, group=True`** on TPE. The sampler then conditions suggestions on the full joint distribution, not independently per parameter — critical when `learning_rate` and `num_leaves` are correlated.
 - **`load_if_exists=True`**. Resuming the same study from SQLite picks up where SIGKILL left off. The trial counter is preserved and TPE's prior keeps growing across runs.
 
@@ -256,7 +259,7 @@ The outer `test_*` metrics are the **only** numbers the learner should quote in 
 Run these in order. Each has a named failure mode it exists to catch.
 
 1. **Import check** — `python -c "import tuning.run"`.
-2. **Unit: pruning actually fires** — run `study.optimize(objective, n_trials=30)` on a tiny dataset; `study.trials_dataframe()["state"]` must contain at least one `PRUNED` row. If every trial completes, pruning is misconfigured (likely `n_warmup_steps` too high relative to `num_boost_round`).
+2. **Unit: pruning actually fires** — run `study.optimize(objective, n_trials=30)` on a tiny dataset; `study.trials_dataframe()["state"]` must contain at least one `PRUNED` row. If every trial completes, pruning is misconfigured (likely `n_warmup_steps` set higher than the per-trial step count, so no trial is ever eligible for pruning).
 3. **Unit: early stopping inside a trial** — fit one trial manually; `booster.best_iteration < num_boost_round`. Confirms the callback wiring.
 4. **Unit: resume preserves trial count** — run the orchestrator with `--n-trials=5`, then re-run with `--n-trials=10` using the same `--out`. The second run's `n_trials_completed` must equal 10, not 15 or 5. (Optuna adds up to the requested total since the resumed trials carry over.)
 5. **Unit: determinism** — with the same seed and same data, two consecutive `optimize(..., n_trials=20)` calls on a fresh study produce the same `best_params`. If they differ, the sampler seed is not being propagated — in practice the common cause is launching worker processes without the seed getting pickled through.
@@ -288,7 +291,8 @@ Partial credit: missing item 1 (nested validation) caps the submission at 12. Th
 
 - **Reporting `study.best_value` as the test score.** That number is the inner-CV score the tuner *optimised against*. It is the training-side number of the tuning layer, not a generalisation estimate. The outer held-out split is the only unbiased number.
 - **No `n_startup_trials` on the TPE sampler.** TPE needs a seed of random exploration before its density estimate is useful; starting it from trial 1 biases the search toward whatever the first lucky point was.
-- **Pruning from round 1.** With `n_warmup_steps=0` and `interval_steps=1`, slow-start configurations are killed before they get the chance to recover. Set `n_warmup_steps` to ~5–10% of `num_boost_round`.
+- **Pruning before any fold completes.** With `n_warmup_steps=0` a single unlucky fold kills the trial. Set `n_warmup_steps` large enough to see a stable mean (≥2 folds when reporting at fold granularity; ~5–10% of `num_boost_round` when reporting at boosting-round granularity).
+- **Per-fold `LightGBMPruningCallback` attached to one trial.** The callback reports with `step=env.iteration` (the boosting round), which resets to 0 at the start of every fold. Optuna keeps only the first value seen at each step, so later folds' scores are silently dropped and pruning operates on fold-0 values only. Report once per fold with a unique step instead (`trial.report(mean_so_far, step=fold_idx)`).
 - **Fixed `num_boost_round` with no early stopping.** Either every trial overfits past the valid minimum, or short runs are capped below the real optimum. Early stopping finds the right round count per trial.
 - **In-memory study on a long search.** A single SIGKILL loses hours of compute. SQLite storage is a one-line change for full resumability.
 - **Different `random_state` on each trial.** The seed is not a hyperparameter; varying it inflates the apparent search-space noise and makes TPE's job harder.

@@ -24,7 +24,7 @@ Decision rationale summary:
 | Choice | Alternative considered | Why this one |
 |---|---|---|
 | `Pipeline(StandardScaler → model)` | Scale once at the top of the script | Prevents leakage; cross-validation now actually simulates "unseen data" |
-| `RidgeCV` / `LassoCV` / `ElasticNetCV` | Manual `GridSearchCV` over `alpha` | Built-in path algorithms are ~10× cheaper and numerically stable for Lasso/ENet |
+| `GridSearchCV` over `Pipeline(pre, model)` | `RidgeCV` / `LassoCV` / `ElasticNetCV` | Only `GridSearchCV` refits preprocessing *inside* each CV fold. The built-in path estimators run their internal alpha search *after* the enclosing `Pipeline` has already fit the scaler/encoder on the full training set — alpha is then chosen using validation rows whose statistics are already baked into the preprocessor. We trade the path algorithm's ~10× speed for a leak-free search |
 | Nested evaluation (outer `train_test_split`, inner CV) | Single K-fold | The inner CV picks `alpha`; the outer split estimates generalisation. Collapsing them biases the reported score upward |
 | Report standardised coefficients | Raw coefficients | On raw scale, a feature measured in millions looks like a "small" weight compared to one in `[0, 1]`; misleading |
 | `random_state=42` on every splitter | Default (random each run) | Reruns are byte-identical; diffs in the manifest mean *your* code changed |
@@ -104,9 +104,9 @@ def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
 # regularised_regression/train.py
 from dataclasses import dataclass
 import numpy as np
-from sklearn.linear_model import RidgeCV, LassoCV, ElasticNetCV
+from sklearn.linear_model import Ridge, Lasso, ElasticNet
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, GridSearchCV
 
 from .features import build_preprocessor
 
@@ -121,52 +121,63 @@ class Fitted:
     pipeline: Pipeline
     best_alpha: float
     best_l1_ratio: float | None
+    cv_mse: float
+
+
+def _pipeline(X_train, estimator) -> Pipeline:
+    return Pipeline([("pre", build_preprocessor(X_train)), ("model", estimator)])
 
 
 def fit_all(X_train, y_train, n_splits: int = 5) -> dict[str, Fitted]:
     cv = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    pre = build_preprocessor(X_train)
 
-    ridge = Pipeline([("pre", pre),
-                      ("model", RidgeCV(alphas=ALPHAS, cv=cv, scoring="neg_mean_squared_error"))])
-    lasso = Pipeline([("pre", build_preprocessor(X_train)),
-                      ("model", LassoCV(alphas=ALPHAS, cv=cv, random_state=42, n_jobs=-1, max_iter=20_000))])
-    enet = Pipeline([("pre", build_preprocessor(X_train)),
-                     ("model", ElasticNetCV(alphas=ALPHAS, l1_ratio=L1_RATIOS, cv=cv,
-                                            random_state=42, n_jobs=-1, max_iter=20_000))])
-
-    ridge.fit(X_train, y_train)
-    lasso.fit(X_train, y_train)
-    enet.fit(X_train, y_train)
-
-    return {
-        "ridge": Fitted("ridge", ridge, float(ridge.named_steps["model"].alpha_), None),
-        "lasso": Fitted("lasso", lasso, float(lasso.named_steps["model"].alpha_), None),
-        "enet":  Fitted("enet",  enet,  float(enet.named_steps["model"].alpha_), float(enet.named_steps["model"].l1_ratio_)),
+    searches = {
+        "ridge": GridSearchCV(
+            _pipeline(X_train, Ridge()),
+            param_grid={"model__alpha": ALPHAS},
+            cv=cv, scoring="neg_mean_squared_error", n_jobs=-1,
+        ),
+        "lasso": GridSearchCV(
+            _pipeline(X_train, Lasso(max_iter=20_000, random_state=42)),
+            param_grid={"model__alpha": ALPHAS},
+            cv=cv, scoring="neg_mean_squared_error", n_jobs=-1,
+        ),
+        "enet": GridSearchCV(
+            _pipeline(X_train, ElasticNet(max_iter=20_000, random_state=42)),
+            param_grid={"model__alpha": ALPHAS, "model__l1_ratio": L1_RATIOS},
+            cv=cv, scoring="neg_mean_squared_error", n_jobs=-1,
+        ),
     }
+    for search in searches.values():
+        search.fit(X_train, y_train)
+
+    def _wrap(name: str, search: GridSearchCV) -> Fitted:
+        model = search.best_estimator_.named_steps["model"]
+        l1 = float(model.l1_ratio) if name == "enet" else None
+        return Fitted(
+            name=name,
+            pipeline=search.best_estimator_,
+            best_alpha=float(model.alpha),
+            best_l1_ratio=l1,
+            cv_mse=float(-search.best_score_),
+        )
+
+    return {name: _wrap(name, s) for name, s in searches.items()}
 ```
 
 Key points, each tied to a predictable failure mode:
 
-- The three CV estimators share the same `KFold` object with a fixed `random_state`, so their mean-CV scores are directly comparable.
-- `max_iter=20_000` is not paranoia — Lasso/ENet will emit a `ConvergenceWarning` on real datasets with correlated features at default settings, and a non-converged fit returns silently-wrong coefficients.
-- A fresh `build_preprocessor(X_train)` per pipeline avoids the `ColumnTransformer` state being shared across fits (which would make `best_alpha_` unreliable on re-fit).
+- **Preprocessing sits *inside* the `Pipeline` that `GridSearchCV` clones per fold**, so the scaler and one-hot encoder are refit on each inner training fold. Reaching for `RidgeCV` / `LassoCV` / `ElasticNetCV` here looks cleaner but leaks: those estimators run their alpha search over an input matrix that was transformed by a preprocessor already fit on the entire outer training set — validation rows' statistics are baked in before alpha is chosen.
+- All three `GridSearchCV` instances share the same `KFold` (same seed, same splits), so their `best_score_` values are directly comparable.
+- `max_iter=20_000` is not paranoia — `Lasso` / `ElasticNet` will emit a `ConvergenceWarning` on real datasets with correlated features at default settings, and a non-converged fit returns silently-wrong coefficients.
+- A fresh `build_preprocessor(X_train)` per pipeline keeps each `Pipeline` self-contained — the `ColumnTransformer` instance is not shared across searches.
 
 ### 2.5 Model selection rule
 
 ```python
 # regularised_regression/train.py (continued)
-from sklearn.model_selection import cross_val_score
-
-
-def cv_score(pipeline: Pipeline, X, y, cv) -> float:
-    scores = cross_val_score(pipeline, X, y, cv=cv, scoring="neg_mean_squared_error", n_jobs=-1)
-    return float(-scores.mean())
-
-
-def choose_winner(fitted: dict[str, Fitted], X_train, y_train) -> str:
-    cv = KFold(n_splits=5, shuffle=True, random_state=42)
-    mse = {name: cv_score(f.pipeline, X_train, y_train, cv) for name, f in fitted.items()}
+def choose_winner(fitted: dict[str, Fitted]) -> str:
+    mse = {name: f.cv_mse for name, f in fitted.items()}
     # Tie-break by model simplicity: Lasso > ENet > Ridge when within 1% of best.
     best_name = min(mse, key=mse.get)
     best = mse[best_name]
@@ -175,6 +186,8 @@ def choose_winner(fitted: dict[str, Fitted], X_train, y_train) -> str:
             return candidate
     return best_name
 ```
+
+The CV MSE for each candidate is the leak-free score `GridSearchCV` already produced on the shared `KFold` — no second CV pass is needed, and introducing one would re-fit the pipeline outside of the search's folds for no benefit.
 
 The tie-break rule is the opinionated part. "Within 1% of the best CV MSE → prefer the sparser model" trades a tiny bit of fit for a much smaller active-set and better auditability. Without a rule, learners default to "lowest number wins," which overfits the tie-break noise and produces a different model every retrain.
 
@@ -240,7 +253,7 @@ def main() -> None:
 
     split = load_and_split(args.data, args.target)
     fitted = fit_all(split.X_train, split.y_train)
-    winner = choose_winner(fitted, split.X_train, split.y_train)
+    winner = choose_winner(fitted)
     report(fitted, winner, split, Path(args.out))
 
 
