@@ -151,22 +151,26 @@ def pick_rows(y_true: pd.Series, y_proba: np.ndarray, k: int = 2) -> dict[str, l
     }
 
 
-def local_report(sv: shap.Explanation, y_true, y_proba, out_dir: Path) -> dict:
+def _positive_class_row(sv: shap.Explanation, r: int) -> shap.Explanation:
     # TreeExplainer on a binary sklearn classifier (e.g. RandomForestClassifier) returns
-    # values shaped (n_samples, n_features, n_classes). `shap.plots.waterfall` needs a
-    # 1-D per-sample Explanation, so collapse the class axis on the Explanation itself
-    # (SHAP's own ellipsis-indexing propagates values + base_values together) before we
-    # index by row — otherwise `sv[r]` below is still a multi-output explanation.
-    if np.asarray(sv.values).ndim == 3:
-        sv = sv[..., 1]
+    # values shaped (n_samples, n_features, n_classes), so `sv[r]` is still a multi-output
+    # explanation with values shape (n_features, n_classes). `shap.plots.waterfall` needs
+    # a 1-D Explanation — pick the positive class on the per-row Explanation itself so
+    # values and base_values stay in lockstep.
+    row = sv[r]
+    if np.asarray(row.values).ndim == 2:
+        row = row[:, 1]
+    return row
 
+
+def local_report(sv: shap.Explanation, y_true, y_proba, out_dir: Path) -> dict:
     picks = pick_rows(y_true.to_numpy(), np.asarray(y_proba))
     out_dir.mkdir(parents=True, exist_ok=True)
     recorded: dict = {}
     for label, rows in picks.items():
         for r in rows:
             plt.figure()
-            shap.plots.waterfall(sv[r], max_display=15, show=False)
+            shap.plots.waterfall(_positive_class_row(sv, r), max_display=15, show=False)
             plt.tight_layout()
             plt.savefig(out_dir / f"waterfall__{label}__row_{r}.png",
                         dpi=150, bbox_inches="tight")
