@@ -154,17 +154,11 @@ def pick_rows(y_true: pd.Series, y_proba: np.ndarray, k: int = 2) -> dict[str, l
 def local_report(sv: shap.Explanation, y_true, y_proba, out_dir: Path) -> dict:
     # TreeExplainer on a binary sklearn classifier (e.g. RandomForestClassifier) returns
     # values shaped (n_samples, n_features, n_classes). `shap.plots.waterfall` needs a
-    # 1-D per-sample Explanation, so pick the positive class *on the Explanation itself*
-    # — not just a local array — before indexing by row.
-    vals = np.asarray(sv.values)
-    if vals.ndim == 3:
-        base = np.asarray(sv.base_values)
-        sv = shap.Explanation(
-            values=vals[..., 1],
-            base_values=base[..., 1] if base.ndim >= 2 else base,
-            data=np.asarray(sv.data),
-            feature_names=sv.feature_names,
-        )
+    # 1-D per-sample Explanation, so collapse the class axis on the Explanation itself
+    # (SHAP's own ellipsis-indexing propagates values + base_values together) before we
+    # index by row — otherwise `sv[r]` below is still a multi-output explanation.
+    if np.asarray(sv.values).ndim == 3:
+        sv = sv[..., 1]
 
     picks = pick_rows(y_true.to_numpy(), np.asarray(y_proba))
     out_dir.mkdir(parents=True, exist_ok=True)
