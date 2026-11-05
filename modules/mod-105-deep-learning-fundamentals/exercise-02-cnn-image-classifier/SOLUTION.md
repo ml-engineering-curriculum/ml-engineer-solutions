@@ -512,7 +512,7 @@ Weighted, `/20` points total.
 | 6 | Gradient clipping + AMP | 2 | `clip_grad_norm_(1.0)` after `backward`, before `step`; `torch.autocast(bf16)` on CUDA with CPU fallback |
 | 7 | Overfit-a-small-batch | 2 | `test_overfit_small_batch` brings loss to ≤ 30% of initial in ≤ 100 steps (the model has to fit 16 examples at `lr=3e-3`) |
 | 8 | Metrics | 2 | Overall test accuracy ≥ 85% for small CNN, ≥ 90% for fully fine-tuned ResNet-18; per-class accuracy table + confusion matrix in `REPORT.md` |
-| 9 | Augmentation ablation | 2 | Three val accuracies with `aug=none|standard|strong`, in a table; train − val loss gap discussed |
+| 9 | Augmentation ablation | 2 | Three val accuracies with `aug=none\|standard\|strong`, in a table; train − val loss gap discussed |
 | 10 | Report | 3 | Dataset, architectures, parameter counts, training config, metrics, wall-clock, ablation, reflection answers |
 
 A submission missing item 3 (normalisation stats) cannot score above 14 — it is the silent-accuracy-loss pitfall the whole fine-tune part is pedagogically built around.
