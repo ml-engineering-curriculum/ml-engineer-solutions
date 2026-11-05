@@ -19,7 +19,7 @@ Decision rationale summary:
 | `shap.TreeExplainer` on the LightGBM/XGBoost/RF model | `KernelExplainer` | Exact for trees, ~1000× faster, no background-set choice to get wrong |
 | `feature_perturbation="tree_path_dependent"` | `"interventional"` with a background set | Exact Shapley values for tree models without requiring a background distribution; interventional needs a representative background that is hard to pick |
 | Explanations on test rows | Training rows | A production explanation is for an unseen prediction; training-row explanations are a different question (model internals, not predictions) |
-| Mean |SHAP| for global ranking | Built-in `feature_importances_` (MDI) | MDI is biased toward high-cardinality features; mean |SHAP| is the model-output-attribution ranking |
+| Mean \|SHAP\| for global ranking | Built-in `feature_importances_` (MDI) | MDI is biased toward high-cardinality features; mean \|SHAP\| is the model-output-attribution ranking |
 | Waterfall for *selected* individual rows (TP/FP/FN/TN) | Random rows | A reviewer wants to see explanations for the decisions that *matter*: a confident wrong prediction, a confident right one, a borderline case. Random rows waste attention |
 | Save SHAP values to parquet alongside plots | Plots only | Plots are not reproducible or diff-able; the numeric values are the artefact, plots are a projection |
 | Permutation importance alongside SHAP | SHAP only | They answer different questions — "how much does the model *rely* on this feature?" vs "how much does the feature *change the output* for this prediction?" Divergence is informative |
