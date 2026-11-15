@@ -2,7 +2,7 @@
 
 ML Engineering Curriculum · Level 20 · [learning](https://github.com/ml-engineering-curriculum/ml-engineer-learning) · [solutions](https://github.com/ml-engineering-curriculum/ml-engineer-solutions)
 
-_Generated 2026-11-08 by `aicg org completeness`._
+_Generated 2026-11-15 by `aicg org completeness`._
 
 **Overall: 95%**
 
@@ -20,11 +20,11 @@ _Generated 2026-11-08 by `aicg org completeness`._
 | `mod-103-data-engineering-for-ml` | ✅ Complete | 37,368 | 10 | 4 | — | 4/4 |
 | `mod-104-classical-ml-modeling` | ✅ Complete | 39,983 | 10 | 4 | — | 4/4 |
 | `mod-105-deep-learning-fundamentals` | ✅ Complete | 43,516 | 10 | 4 | — | 4/4 |
-| `mod-106-experiment-tracking-reproducibility` | ✅ Complete | 27,666 | 9 | 4 | — | 4/4 |
-| `mod-107-model-evaluation-validation` | ✅ Complete | 33,875 | 11 | 4 | — | 4/4 |
-| `mod-108-model-deployment-serving` | ✅ Complete | 32,878 | 11 | 4 | — | 4/4 |
-| `mod-109-ml-monitoring-drift` | ✅ Complete | 26,398 | 7 | 4 | — | 4/4 |
-| `mod-110-ml-systems-design` | ✅ Complete | 33,808 | 7 | 4 | — | 4/4 |
+| `mod-106-experiment-tracking-reproducibility` | ✅ Complete | 39,230 | 9 | 4 | — | 4/4 |
+| `mod-107-model-evaluation-validation` | ✅ Complete | 45,514 | 11 | 4 | — | 4/4 |
+| `mod-108-model-deployment-serving` | ✅ Complete | 46,941 | 11 | 4 | — | 4/4 |
+| `mod-109-ml-monitoring-drift` | ✅ Complete | 43,970 | 7 | 4 | — | 4/4 |
+| `mod-110-ml-systems-design` | ✅ Complete | 50,028 | 7 | 4 | — | 4/4 |
 
 ## How this is calculated
 
