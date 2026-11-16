@@ -303,7 +303,7 @@ Items 1, 2, 3, and 4 are mandatory. An image with the compiler in it, a floating
 - Dockerfile reference and best-practices (multi-stage, build secrets, BuildKit, cache mounts). <https://docs.docker.com/reference/dockerfile/> and <https://docs.docker.com/build/building/best-practices/>
 - Docker BuildKit — `--provenance`, `--sbom`, cache mounts, platform matrix. <https://docs.docker.com/build/attestations/>
 - OCI image-spec — `org.opencontainers.image.*` label conventions. <https://github.com/opencontainers/image-spec/blob/main/annotations.md>
-- NIST SP 800-190 — Application Container Security Guide (non-root, read-only rootfs, minimal base images). <https://csrc.nist.gov/publications/detail/sp/800-190/final>
+- NIST SP 800-190 — Application Container Security Guide (non-root, read-only rootfs, minimal base images). <https://csrc.nist.gov/pubs/sp/800/190/final>
 - OWASP Machine Learning Security Top 10 — `ML06:2023 AI Supply Chain Attacks` (why pinned, hashed, scanned images are the baseline). <https://owasp.org/www-project-machine-learning-security-top-10/>
 - MITRE ATLAS — `AML.T0010 ML Supply Chain Compromise` — the container is one of the links in that chain; the Dockerfile is the primary mitigation surface. <https://atlas.mitre.org/>
 - NIST AI Risk Management Framework 1.0 — `MANAGE 2.1` (documented provenance across the ML lifecycle) as justification for OCI labels and SBOMs. <https://www.nist.gov/itl/ai-risk-management-framework>
