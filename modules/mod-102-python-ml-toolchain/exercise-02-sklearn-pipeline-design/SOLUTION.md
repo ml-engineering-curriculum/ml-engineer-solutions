@@ -508,4 +508,4 @@ Official project documentation:
 - Developing estimators —
   <https://scikit-learn.org/stable/developers/develop.html>
 - OpenML "Adult" dataset page —
-  <https://www.openml.org/d/1590>
+  <https://www.openml.org/search?type=data&sort=runs&id=1590>
